@@ -3,11 +3,9 @@ import cron from 'node-cron';
 import { pollAndIngest, pruneHistory } from '$lib/server/sifen';
 import { dev } from '$app/env';
 
-let started = false;
-
 function startTasks() {
-  if (started) return;
-  started = true;
+  if (globalThis.__sifenStarted) return;
+  globalThis.__sifenStarted = true;
 
   void pollAndIngest();
   void pruneHistory();

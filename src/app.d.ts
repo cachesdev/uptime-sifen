@@ -8,6 +8,8 @@ declare global {
     // interface PageState {}
     // interface Platform {}
   }
+
+  var __sifenStarted: boolean | undefined;
 }
 
 export {};

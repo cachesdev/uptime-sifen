@@ -45,6 +45,30 @@
     ROJO: 'Rojo'
   };
 
+  const statusLegend = [
+    {
+      estado: 'VERDE',
+      label: 'Verde',
+      dotClass: 'bg-success',
+      description:
+        'La consulta devolvió una respuesta positiva. Ocurre después de cualquier estado.'
+    },
+    {
+      estado: 'AMARILLO',
+      label: 'Amarillo',
+      dotClass: 'bg-warning',
+      description:
+        'Primera respuesta negativa, por falla en el servicio o en la conexión. Si la siguiente es positiva, pasa a verde; si es negativa, pasa a rojo.'
+    },
+    {
+      estado: 'ROJO',
+      label: 'Rojo',
+      dotClass: 'bg-destructive',
+      description:
+        'Segunda respuesta negativa consecutiva. Si la siguiente respuesta es positiva, pasa a verde.'
+    }
+  ] as const;
+
   function formatDate(date: Date | null): string {
     if (!date) return '—';
     return DateTime.fromJSDate(date).toFormat('dd/MM/yyyy HH:mm');
@@ -141,7 +165,7 @@
     {/if}
 
     <section class={environmentIndex === 0 ? 'mt-10' : undefined}>
-      <h2 class="mb-4 text-xs font-medium text-muted-foreground">{environment.label}</h2>
+      <h2 class="mb-4 text-sm font-medium text-muted-foreground">{environment.label}</h2>
 
       <svelte:boundary>
         {#snippet pending()}
@@ -237,4 +261,59 @@
       </svelte:boundary>
     </section>
   {/each}
+
+  <section class="mt-16 border-t border-border pt-8">
+    <h2 class="mb-6 text-sm font-medium text-muted-foreground">Referencia</h2>
+
+    <div class="mb-8 flex flex-wrap gap-x-10 gap-y-6">
+      {#each statusLegend as item (item.estado)}
+        <div class="flex items-start gap-3">
+          <span class="mt-1.5 size-2.5 shrink-0 rounded-full {item.dotClass}"></span>
+          <div>
+            <p class="text-sm font-medium text-foreground">{item.label}</p>
+            <p class="mt-1 max-w-xs text-sm leading-relaxed text-muted-foreground">
+              {item.description}
+            </p>
+          </div>
+        </div>
+      {/each}
+    </div>
+
+    <p class="max-w-2xl text-sm leading-relaxed text-muted-foreground">
+      La disponibilidad se calcula como el porcentaje de muestras con estado verde sobre el total de
+      muestras almacenadas en el período seleccionado. Los estados amarillo y rojo se consideran no
+      disponibles. Los minutos sin datos, cuando no se pudo consultar el servicio, no afectan el
+      cálculo. El muestreo se hace cada minuto.
+    </p>
+  </section>
+
+  <footer
+    class="mt-16 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-6 text-xs text-muted-foreground"
+  >
+    <p>
+      Hecho por
+      <a
+        href="https://github.com/cachesdev"
+        class="font-medium text-link underline-offset-4 hover:underline"
+        rel="noopener noreferrer"
+        target="_blank">Gustavo Dominguez</a
+      >
+      ·
+      <a
+        href="https://github.com/cachesdev/uptime-sifen"
+        class="font-medium text-link underline-offset-4 hover:underline"
+        rel="noopener noreferrer"
+        target="_blank">código fuente</a
+      >
+    </p>
+    <p class="font-mono">
+      Datos de
+      <a
+        href="https://semaforo-sifen.dnit.gov.py/"
+        class="text-link underline-offset-4 hover:underline"
+        rel="noopener noreferrer"
+        target="_blank">DNIT · SIFEN</a
+      >
+    </p>
+  </footer>
 </main>
