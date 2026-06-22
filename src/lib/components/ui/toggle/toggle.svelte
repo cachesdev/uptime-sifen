@@ -11,9 +11,9 @@
       },
       size: {
         default:
-          'h-9 min-w-9 px-5 has-data-[icon=inline-end]:pr-4 has-data-[icon=inline-start]:pl-4',
-        sm: 'h-8 min-w-8 px-4 has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3',
-        lg: 'h-10 min-w-10 px-7 has-data-[icon=inline-end]:pr-5 has-data-[icon=inline-start]:pl-5'
+          'h-8 min-w-8 px-5 has-data-[icon=inline-end]:pr-4 has-data-[icon=inline-start]:pl-4',
+        sm: 'h-7 min-w-7 px-4 has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3',
+        lg: 'h-9 min-w-9 px-7 has-data-[icon=inline-end]:pr-5 has-data-[icon=inline-start]:pl-5'
       }
     },
     defaultVariants: {

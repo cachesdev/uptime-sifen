@@ -4,11 +4,13 @@
   import * as ToggleGroup from '$lib/components/ui/toggle-group/index.js';
   import * as Card from '$lib/components/ui/card/index.js';
   import { Separator } from '$lib/components/ui/separator/index.js';
-  import { Button } from '$lib/components/ui/button/index.js';
+  import { Button, PillButton } from '$lib/components/ui/button/index.js';
+  import { Skeleton } from '$lib/components/ui/skeleton/index.js';
+  import { ArrowClockwiseIcon, SpinnerGapIcon } from 'phosphor-svelte';
   import { DateTime } from 'luxon';
 
   let range = $state<HealthChartRange>('24h');
-  let refreshing = $state(false);
+  let refreshingManually = $state(false);
 
   const ranges: Array<{ value: HealthChartRange; label: string }> = [
     { value: '60m', label: '60 min' },
@@ -16,6 +18,20 @@
     { value: '30d', label: '30 días' },
     { value: '60d', label: '60 días' }
   ];
+
+  const environments = [
+    { value: 'PRODUCCION', label: 'Producción', skeletonTestId: 'produccion-skeleton' },
+    { value: 'TEST', label: 'Test', skeletonTestId: 'test-skeleton' }
+  ] as const;
+
+  const chartSkeletonBars: Record<HealthChartRange, number> = {
+    '60m': 60,
+    '24h': 24,
+    '30d': 30,
+    '60d': 60
+  };
+
+  const skeletonCards = [0, 1, 2, 3, 4, 5];
 
   const statusDotClass: Record<string, string> = {
     VERDE: 'bg-success',
@@ -42,133 +58,183 @@
     return name.replace(/\s*-\s*(Producción|Test)\s*$/, '');
   }
 
+  async function waitForDashboardData(range: HealthChartRange): Promise<string> {
+    await dashboardData(range);
+    return '';
+  }
+
   async function refresh() {
-    refreshing = true;
+    if (refreshingManually) return;
+
+    refreshingManually = true;
     try {
       await refreshNow();
-      void dashboardData(range).refresh();
+      await dashboardData(range).refresh();
     } finally {
-      refreshing = false;
+      refreshingManually = false;
     }
   }
 </script>
 
-<svelte:boundary>
-  {#snippet pending()}
-    <div class="mx-auto max-w-352 px-6 py-10">
-      <div class="h-7 w-72 bg-muted animate-pulse"></div>
-      <div class="mt-2 h-4 w-48 bg-muted/50 animate-pulse"></div>
-      <div class="mt-8 h-8 w-96 bg-muted/50 animate-pulse"></div>
-    </div>
-  {/snippet}
+{#snippet RefreshButton(isUpdating: boolean)}
+  <PillButton variant="outline" onclick={refresh} disabled={isUpdating} aria-busy={isUpdating}>
+    {#if isUpdating}
+      <SpinnerGapIcon data-icon="inline-start" class="animate-spin" aria-hidden="true" />
+      <span aria-live="polite">Actualizando</span>
+    {:else}
+      <ArrowClockwiseIcon data-icon="inline-start" aria-hidden="true" />
+      Actualizar
+    {/if}
+  </PillButton>
+{/snippet}
 
-  {#snippet failed(error)}
-    <div class="mx-auto max-w-352 px-6 py-10">
-      <p class="text-sm text-destructive">No se pudo cargar el estado de los servicios.</p>
-      <p class="mt-1 text-xs text-muted-foreground">
-        {error instanceof Error ? error.message : 'Error desconocido'}
-      </p>
-    </div>
-  {/snippet}
+<main class="mx-auto max-w-352 px-6 py-10">
+  <header class="flex flex-wrap items-end justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-semibold tracking-tight">Estado de servicios SIFEN</h1>
+      <div class="mt-1 flex flex-wrap items-center gap-1.5 font-mono text-xs text-muted-foreground">
+        <span>Última muestra:</span>
+        <svelte:boundary>
+          {#snippet pending()}
+            <Skeleton
+              data-testid="last-sample-skeleton"
+              class="h-3 w-32 border-muted bg-muted/60"
+            />
+          {/snippet}
 
-  {const data = $derived(await dashboardData(range))}
-  {const production = $derived(data.services.filter((s) => s.environment === 'PRODUCCION'))}
-  {const test = $derived(data.services.filter((s) => s.environment === 'TEST'))}
+          {#snippet failed()}
+            <span class="text-destructive">No disponible</span>
+          {/snippet}
 
-  <main class="mx-auto max-w-352 px-6 py-10">
-    <header class="flex flex-wrap items-end justify-between gap-4">
-      <div>
-        <h1 class="text-2xl font-semibold tracking-tight">Estado de servicios SIFEN</h1>
-        <p class="mt-1 font-mono text-xs text-muted-foreground">
-          Última muestra: {formatDate(data.lastSample)}
-        </p>
+          {const data = $derived(await dashboardData(range))}
+          <span>{formatDate(data.lastSample)}</span>
+        </svelte:boundary>
       </div>
+    </div>
 
-      <div class="flex items-center gap-3">
-        <ToggleGroup.Root type="single" variant="outline" bind:value={range}>
-          {#each ranges as r (r.value)}
-            <ToggleGroup.Item value={r.value}>{r.label}</ToggleGroup.Item>
+    <div class="flex max-w-full flex-wrap items-center gap-3">
+      <ToggleGroup.Root
+        type="single"
+        variant="outline"
+        bind:value={range}
+        class="w-full flex-wrap sm:w-fit"
+      >
+        {#each ranges as r (r.value)}
+          <ToggleGroup.Item value={r.value}>{r.label}</ToggleGroup.Item>
+        {/each}
+      </ToggleGroup.Root>
+
+      <svelte:boundary>
+        {#snippet pending()}
+          {@render RefreshButton(refreshingManually)}
+        {/snippet}
+
+        {await waitForDashboardData(range)}
+        {@render RefreshButton(refreshingManually || $effect.pending() > 0)}
+      </svelte:boundary>
+    </div>
+  </header>
+
+  {#each environments as environment, environmentIndex (environment.value)}
+    {#if environmentIndex > 0}
+      <Separator class="my-10" />
+    {/if}
+
+    <section class={environmentIndex === 0 ? 'mt-10' : undefined}>
+      <h2 class="mb-4 text-xs font-medium text-muted-foreground">{environment.label}</h2>
+
+      <svelte:boundary>
+        {#snippet pending()}
+          <div
+            data-testid={environment.skeletonTestId}
+            aria-busy="true"
+            aria-label={`${environment.label} cargando`}
+            class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3"
+          >
+            {#each skeletonCards as card (card)}
+              <Card.Root class="hairline-frame" aria-hidden="true">
+                <Card.Header>
+                  <div class="flex items-center justify-between gap-2">
+                    <Skeleton class="h-4 w-36 bg-muted/80" />
+                    <div class="flex items-center gap-1.5">
+                      <Skeleton class="size-2 rounded-full bg-muted/80" />
+                      <Skeleton class="h-3 w-10 bg-muted/60" />
+                    </div>
+                  </div>
+                </Card.Header>
+
+                <Card.Content>
+                  <div class="mb-3 flex items-baseline gap-2">
+                    <Skeleton class="h-6 w-20 bg-muted/80" />
+                    <Skeleton class="h-3 w-24 bg-muted/60" />
+                    <Skeleton class="ml-auto h-3 w-12 bg-muted/50" />
+                  </div>
+
+                  <div class="flex h-10 w-full items-end gap-px">
+                    {#each { length: chartSkeletonBars[range] }, barIndex}
+                      <Skeleton
+                        class={barIndex % 5 === 0
+                          ? 'h-full min-w-px flex-1 rounded-none border-transparent bg-muted'
+                          : 'h-full min-w-px flex-1 rounded-none border-transparent bg-muted/60'}
+                      />
+                    {/each}
+                  </div>
+                </Card.Content>
+              </Card.Root>
+            {/each}
+          </div>
+        {/snippet}
+
+        {#snippet failed(error, reset)}
+          <div class="hairline-frame border border-destructive/30 bg-destructive/5 px-4 py-3">
+            <p class="text-sm font-medium text-destructive">
+              No se pudo cargar {environment.label.toLowerCase()}.
+            </p>
+            <p class="mt-1 text-xs text-muted-foreground">
+              {error instanceof Error ? error.message : 'Error desconocido'}
+            </p>
+            <Button class="mt-3" variant="outline" size="sm" onclick={reset}>Reintentar</Button>
+          </div>
+        {/snippet}
+
+        {const data = $derived(await dashboardData(range))}
+        {const services = $derived(
+          data.services.filter((service) => service.environment === environment.value)
+        )}
+
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {#each services as service (service.name)}
+            <Card.Root class="hairline-frame">
+              <Card.Header>
+                <div class="flex items-center justify-between gap-2">
+                  <Card.Title class="text-sm">{shortName(service.name)}</Card.Title>
+                  {#if service.lastEstado}
+                    <div class="flex items-center gap-1.5">
+                      <span class={['size-2 rounded-full', statusDotClass[service.lastEstado]]}
+                      ></span>
+                      <span class="text-xs">{statusLabel[service.lastEstado]}</span>
+                    </div>
+                  {/if}
+                </div>
+              </Card.Header>
+              <Card.Content>
+                <div class="mb-3 flex items-baseline gap-2">
+                  <span class="font-mono text-xl tabular-nums">
+                    {formatAvailability(service.availability)}
+                  </span>
+                  <span class="text-xs text-muted-foreground">disponibilidad</span>
+                  {#if service.lastResponseMs !== null}
+                    <span class="ml-auto font-mono text-xs text-muted-foreground">
+                      {service.lastResponseMs} ms
+                    </span>
+                  {/if}
+                </div>
+                <HealthChart data={service.points} {range} emptyText="Sin datos" />
+              </Card.Content>
+            </Card.Root>
           {/each}
-        </ToggleGroup.Root>
-
-        <Button variant="outline" onclick={refresh} disabled={refreshing}>
-          {refreshing ? 'Actualizando…' : 'Actualizar'}
-        </Button>
-      </div>
-    </header>
-
-    <section class="mt-10">
-      <h2 class="mb-4 text-xs font-medium text-muted-foreground">Producción</h2>
-      <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {#each production as service (service.name)}
-          <Card.Root class="hairline-frame">
-            <Card.Header>
-              <div class="flex items-center justify-between gap-2">
-                <Card.Title class="text-sm">{shortName(service.name)}</Card.Title>
-                {#if service.lastEstado}
-                  <div class="flex items-center gap-1.5">
-                    <span class={['size-2 rounded-full', statusDotClass[service.lastEstado]]}
-                    ></span>
-                    <span class="text-xs">{statusLabel[service.lastEstado]}</span>
-                  </div>
-                {/if}
-              </div>
-            </Card.Header>
-            <Card.Content>
-              <div class="mb-3 flex items-baseline gap-2">
-                <span class="font-mono text-xl tabular-nums">
-                  {formatAvailability(service.availability)}
-                </span>
-                <span class="text-xs text-muted-foreground">disponibilidad</span>
-                {#if service.lastResponseMs !== null}
-                  <span class="ml-auto font-mono text-xs text-muted-foreground">
-                    {service.lastResponseMs} ms
-                  </span>
-                {/if}
-              </div>
-              <HealthChart data={service.points} {range} emptyText="Sin datos" />
-            </Card.Content>
-          </Card.Root>
-        {/each}
-      </div>
+        </div>
+      </svelte:boundary>
     </section>
-
-    <Separator class="my-10" />
-
-    <section>
-      <h2 class="mb-4 text-xs font-medium text-muted-foreground">Test</h2>
-      <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {#each test as service (service.name)}
-          <Card.Root class="hairline-frame">
-            <Card.Header>
-              <div class="flex items-center justify-between gap-2">
-                <Card.Title class="text-sm">{shortName(service.name)}</Card.Title>
-                {#if service.lastEstado}
-                  <div class="flex items-center gap-1.5">
-                    <span class={['size-2 rounded-full', statusDotClass[service.lastEstado]]}
-                    ></span>
-                    <span class="text-xs">{statusLabel[service.lastEstado]}</span>
-                  </div>
-                {/if}
-              </div>
-            </Card.Header>
-            <Card.Content>
-              <div class="mb-3 flex items-baseline gap-2">
-                <span class="font-mono text-xl tabular-nums">
-                  {formatAvailability(service.availability)}
-                </span>
-                <span class="text-xs text-muted-foreground">disponibilidad</span>
-                {#if service.lastResponseMs !== null}
-                  <span class="ml-auto font-mono text-xs text-muted-foreground">
-                    {service.lastResponseMs} ms
-                  </span>
-                {/if}
-              </div>
-              <HealthChart data={service.points} {range} emptyText="Sin datos" />
-            </Card.Content>
-          </Card.Root>
-        {/each}
-      </div>
-    </section>
-  </main>
-</svelte:boundary>
+  {/each}
+</main>
