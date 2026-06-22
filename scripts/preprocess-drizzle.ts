@@ -41,7 +41,10 @@ interface Override {
 	importFrom?: string;
 }
 
-const OVERRIDES: Record<string, Override> = {};
+const OVERRIDES: Record<string, Override> = {
+	'serviceStatus.estado': { type: '"VERDE" | "AMARILLO" | "ROJO"' },
+	'serviceStatus.entorno': { type: '"PRODUCCION" | "TEST"' }
+};
 
 // ---------------------------------------------------------------------------
 // Paso 1: ejecutar drizzle-kit pull
@@ -183,6 +186,23 @@ for (const [moduleSpecifier, types] of neededImports) {
 
 console.log('→ Aplicando parches específicos…');
 removeUnusedPgCoreImport(sourceFile, 'foreignKey');
+removeUnusedPgCoreImport(sourceFile, 'primaryKey');
+
+// ---------------------------------------------------------------------------
+// Paso 5b: Arreglar relations.ts — el parámetro `r` sin usar
+// ---------------------------------------------------------------------------
+
+const relationsPath = path.join(DB_DIR, 'relations.ts');
+if (existsSync(relationsPath)) {
+	const relationsFile = project.addSourceFileAtPath(relationsPath);
+	const content = relationsFile.getFullText();
+	const fixed = content.replace('(r) => ({})', '() => ({})');
+	if (fixed !== content) {
+		relationsFile.replaceWithText(fixed);
+		relationsFile.saveSync();
+		console.log('  ✓ relations.ts: parámetro `r` sin usar removido');
+	}
+}
 
 // ---------------------------------------------------------------------------
 // Paso 6: guardar

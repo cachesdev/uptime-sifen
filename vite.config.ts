@@ -23,7 +23,12 @@ export default defineConfig({
 			typescript: {
 				config: (config) => ({
 					...config,
-					include: [...config.include, '../drizzle.config.ts', '../jsrepo.config.ts']
+					include: [
+						...config.include,
+						'../drizzle.config.ts',
+						'../jsrepo.config.ts',
+						'../migrations/**/*'
+					]
 				})
 			}
 		})
