@@ -8,7 +8,7 @@
 
 You are able to use the Svelte MCP server, where you have access to comprehensive Svelte 5 and SvelteKit documentation. Here's how to use the available tools effectively:
 
-## Available Svelte MCP Tools:
+## Available Svelte MCP Tools
 
 ### 1. list-sections
 
@@ -29,3 +29,7 @@ You MUST use this tool whenever writing Svelte code before sending it to the use
 
 Generates a Svelte Playground link with the provided code.
 After completing the code, ask the user if they want a playground link. Only call this tool after user confirmation and NEVER if code was written to files in their project.
+
+## Design
+
+Read DESIGN.md.
