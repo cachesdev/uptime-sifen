@@ -6,19 +6,19 @@ import { dev } from '$app/env';
 let started = false;
 
 function startTasks() {
-	if (started) return;
-	started = true;
+  if (started) return;
+  started = true;
 
-	void pollAndIngest();
-	void pruneHistory();
+  void pollAndIngest();
+  void pruneHistory();
 
-	cron.schedule('*/1 * * * *', () => void pollAndIngest());
-	cron.schedule('0 3 * * *', () => void pruneHistory());
+  cron.schedule('*/1 * * * *', () => void pollAndIngest());
+  cron.schedule('0 3 * * *', () => void pruneHistory());
 
-	if (dev) console.log('[sifen] sampling tasks started');
+  if (dev) console.log('[sifen] sampling tasks started');
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
-	startTasks();
-	return resolve(event);
+  startTasks();
+  return resolve(event);
 };

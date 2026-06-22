@@ -32,18 +32,18 @@ const KEEP_FILES = ['schema.ts', 'relations.ts'];
 // ---------------------------------------------------------------------------
 
 interface Override {
-	/** Tipo TS completamente calificado, ej. 'ContribuyenteEstado' o '"a" | "b"' */
-	type: string;
-	/**
-	 * Si el tipo proviene de ./enums, indicarlo aquí para que se agregue el import.
-	 * Dejar vacío para uniones literales inline.
-	 */
-	importFrom?: string;
+  /** Tipo TS completamente calificado, ej. 'ContribuyenteEstado' o '"a" | "b"' */
+  type: string;
+  /**
+   * Si el tipo proviene de ./enums, indicarlo aquí para que se agregue el import.
+   * Dejar vacío para uniones literales inline.
+   */
+  importFrom?: string;
 }
 
 const OVERRIDES: Record<string, Override> = {
-	'serviceStatus.estado': { type: '"VERDE" | "AMARILLO" | "ROJO"' },
-	'serviceStatus.entorno': { type: '"PRODUCCION" | "TEST"' }
+  'serviceStatus.estado': { type: '"VERDE" | "AMARILLO" | "ROJO"' },
+  'serviceStatus.entorno': { type: '"PRODUCCION" | "TEST"' }
 };
 
 // ---------------------------------------------------------------------------
@@ -62,12 +62,12 @@ mkdirSync(DB_DIR, { recursive: true });
 
 const generated = readdirSync(DRIZZLE_TMP_DIR);
 for (const file of generated) {
-	if (KEEP_FILES.includes(file)) {
-		const src = path.join(DRIZZLE_TMP_DIR, file);
-		const dest = path.join(DB_DIR, file);
-		copyFileSync(src, dest);
-		console.log(`  copiado ${file}`);
-	}
+  if (KEEP_FILES.includes(file)) {
+    const src = path.join(DRIZZLE_TMP_DIR, file);
+    const dest = path.join(DB_DIR, file);
+    copyFileSync(src, dest);
+    console.log(`  copiado ${file}`);
+  }
 }
 
 rmSync(DRIZZLE_TMP_DIR, { recursive: true, force: true });
@@ -80,8 +80,8 @@ console.log('  directorio temporal drizzle/ eliminado');
 const schemaPath = path.join(DB_DIR, 'schema.ts');
 
 if (!existsSync(schemaPath)) {
-	console.error(`✗ schema.ts no encontrado en ${schemaPath}`);
-	process.exit(1);
+  console.error(`✗ schema.ts no encontrado en ${schemaPath}`);
+  process.exit(1);
 }
 
 console.log('→ Parcheando schema.ts con overrides de tipos…');
@@ -93,65 +93,65 @@ const sourceFile = project.addSourceFileAtPath(schemaPath);
 const neededImports = new Map<string, Set<string>>();
 
 for (const [tableColumn, override] of Object.entries(OVERRIDES)) {
-	const [tableName, columnName] = tableColumn.split('.');
+  const [tableName, columnName] = tableColumn.split('.');
 
-	// Buscar la declaración de variable para esta tabla
-	const tableDecl = sourceFile.getVariableDeclaration(tableName);
-	if (!tableDecl) {
-		console.warn(`  ⚠ tabla "${tableName}" no encontrada en el schema, omitiendo`);
-		continue;
-	}
+  // Buscar la declaración de variable para esta tabla
+  const tableDecl = sourceFile.getVariableDeclaration(tableName);
+  if (!tableDecl) {
+    console.warn(`  ⚠ tabla "${tableName}" no encontrada en el schema, omitiendo`);
+    continue;
+  }
 
-	// Entrar en la llamada pgTable(…) → segundo argumento (objeto de definición de columnas)
-	const initializer = tableDecl.getInitializerIfKind(SyntaxKind.CallExpression);
-	if (!initializer) continue;
+  // Entrar en la llamada pgTable(…) → segundo argumento (objeto de definición de columnas)
+  const initializer = tableDecl.getInitializerIfKind(SyntaxKind.CallExpression);
+  if (!initializer) continue;
 
-	const args = initializer.getArguments();
-	// args[0] = string con el nombre de la tabla, args[1] = objeto de columnas
-	const columnsArg = args[1];
-	if (!columnsArg || !Node.isObjectLiteralExpression(columnsArg)) continue;
+  const args = initializer.getArguments();
+  // args[0] = string con el nombre de la tabla, args[1] = objeto de columnas
+  const columnsArg = args[1];
+  if (!columnsArg || !Node.isObjectLiteralExpression(columnsArg)) continue;
 
-	const prop = columnsArg.getProperty(columnName);
-	if (!prop || !Node.isPropertyAssignment(prop)) {
-		console.warn(`  ⚠ columna "${columnName}" no encontrada en la tabla "${tableName}", omitiendo`);
-		continue;
-	}
+  const prop = columnsArg.getProperty(columnName);
+  if (!prop || !Node.isPropertyAssignment(prop)) {
+    console.warn(`  ⚠ columna "${columnName}" no encontrada en la tabla "${tableName}", omitiendo`);
+    continue;
+  }
 
-	// El valor de la columna es una cadena de llamadas: text("col").notNull().default(…) etc.
-	// Necesitamos insertar .$type<Override>() justo después de la primera llamada (el
-	// constructor del tipo de columna) y antes de cualquier modificador.
-	//
-	// Estrategia: encontrar el CallExpression más interno (el constructor de la columna),
-	// luego reescribir toda la cadena para inyectar .$type<>() en la posición 1.
+  // El valor de la columna es una cadena de llamadas: text("col").notNull().default(…) etc.
+  // Necesitamos insertar .$type<Override>() justo después de la primera llamada (el
+  // constructor del tipo de columna) y antes de cualquier modificador.
+  //
+  // Estrategia: encontrar el CallExpression más interno (el constructor de la columna),
+  // luego reescribir toda la cadena para inyectar .$type<>() en la posición 1.
 
-	const columnExpr = prop.getInitializerIfKind(SyntaxKind.CallExpression);
-	if (!columnExpr) continue;
+  const columnExpr = prop.getInitializerIfKind(SyntaxKind.CallExpression);
+  if (!columnExpr) continue;
 
-	const currentText = columnExpr.getText();
+  const currentText = columnExpr.getText();
 
-	// Verificar si .$type<> ya está presente — no agregar duplicados
-	if (currentText.includes('.$type<')) {
-		console.log(`  ~ ${tableColumn} ya tiene .$type<>, actualizando…`);
-		// Reemplazar el .$type<AlgunTipo>() existente con el nuevo
-		const updated = currentText.replace(/\.\$type<[^>]*>\(\)/, `.$type<${override.type}>()`);
-		columnExpr.replaceWithText(updated);
-	} else {
-		// Encontrar dónde inyectar: después de la primera llamada en la cadena.
-		// La "primera llamada" termina después del paréntesis de cierre de ej. text("nombre_columna").
-		// Lo hacemos encontrando la expresión de llamada más a la izquierda/interna.
-		const injected = injectTypeAfterConstructor(currentText, override.type);
-		columnExpr.replaceWithText(injected);
-	}
+  // Verificar si .$type<> ya está presente — no agregar duplicados
+  if (currentText.includes('.$type<')) {
+    console.log(`  ~ ${tableColumn} ya tiene .$type<>, actualizando…`);
+    // Reemplazar el .$type<AlgunTipo>() existente con el nuevo
+    const updated = currentText.replace(/\.\$type<[^>]*>\(\)/, `.$type<${override.type}>()`);
+    columnExpr.replaceWithText(updated);
+  } else {
+    // Encontrar dónde inyectar: después de la primera llamada en la cadena.
+    // La "primera llamada" termina después del paréntesis de cierre de ej. text("nombre_columna").
+    // Lo hacemos encontrando la expresión de llamada más a la izquierda/interna.
+    const injected = injectTypeAfterConstructor(currentText, override.type);
+    columnExpr.replaceWithText(injected);
+  }
 
-	console.log(`  ✓ ${tableColumn} → $type<${override.type}>()`);
+  console.log(`  ✓ ${tableColumn} → $type<${override.type}>()`);
 
-	// Registrar imports necesarios
-	if (override.importFrom) {
-		if (!neededImports.has(override.importFrom)) {
-			neededImports.set(override.importFrom, new Set());
-		}
-		neededImports.get(override.importFrom)!.add(override.type);
-	}
+  // Registrar imports necesarios
+  if (override.importFrom) {
+    if (!neededImports.has(override.importFrom)) {
+      neededImports.set(override.importFrom, new Set());
+    }
+    neededImports.get(override.importFrom)!.add(override.type);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -159,25 +159,25 @@ for (const [tableColumn, override] of Object.entries(OVERRIDES)) {
 // ---------------------------------------------------------------------------
 
 for (const [moduleSpecifier, types] of neededImports) {
-	const existing = sourceFile.getImportDeclaration(moduleSpecifier);
+  const existing = sourceFile.getImportDeclaration(moduleSpecifier);
 
-	if (existing) {
-		// Mergear los named imports faltantes
-		const existingNames = new Set(existing.getNamedImports().map((n) => n.getName()));
-		for (const t of types) {
-			if (!existingNames.has(t)) {
-				existing.addNamedImport(t);
-				console.log(`  + agregado import { ${t} } from '${moduleSpecifier}'`);
-			}
-		}
-	} else {
-		sourceFile.addImportDeclaration({
-			moduleSpecifier,
-			namedImports: [...types],
-			isTypeOnly: true
-		});
-		console.log(`  + agregado import type { ${[...types].join(', ')} } from '${moduleSpecifier}'`);
-	}
+  if (existing) {
+    // Mergear los named imports faltantes
+    const existingNames = new Set(existing.getNamedImports().map((n) => n.getName()));
+    for (const t of types) {
+      if (!existingNames.has(t)) {
+        existing.addNamedImport(t);
+        console.log(`  + agregado import { ${t} } from '${moduleSpecifier}'`);
+      }
+    }
+  } else {
+    sourceFile.addImportDeclaration({
+      moduleSpecifier,
+      namedImports: [...types],
+      isTypeOnly: true
+    });
+    console.log(`  + agregado import type { ${[...types].join(', ')} } from '${moduleSpecifier}'`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -194,14 +194,14 @@ removeUnusedPgCoreImport(sourceFile, 'primaryKey');
 
 const relationsPath = path.join(DB_DIR, 'relations.ts');
 if (existsSync(relationsPath)) {
-	const relationsFile = project.addSourceFileAtPath(relationsPath);
-	const content = relationsFile.getFullText();
-	const fixed = content.replace('(r) => ({})', '() => ({})');
-	if (fixed !== content) {
-		relationsFile.replaceWithText(fixed);
-		relationsFile.saveSync();
-		console.log('  ✓ relations.ts: parámetro `r` sin usar removido');
-	}
+  const relationsFile = project.addSourceFileAtPath(relationsPath);
+  const content = relationsFile.getFullText();
+  const fixed = content.replace('(r) => ({})', '() => ({})');
+  if (fixed !== content) {
+    relationsFile.replaceWithText(fixed);
+    relationsFile.saveSync();
+    console.log('  ✓ relations.ts: parámetro `r` sin usar removido');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -227,45 +227,45 @@ console.log('✓ schema.ts guardado');
  * Encontramos el fin de la primera llamada rastreando la profundidad de paréntesis.
  */
 function injectTypeAfterConstructor(chain: string, typeName: string): string {
-	let depth = 0;
-	let i = 0;
+  let depth = 0;
+  let i = 0;
 
-	// Avanzar hasta el paréntesis de apertura de la primera llamada
-	while (i < chain.length && chain[i] !== '(') i++;
+  // Avanzar hasta el paréntesis de apertura de la primera llamada
+  while (i < chain.length && chain[i] !== '(') i++;
 
-	// Recorrer balanceando paréntesis
-	for (; i < chain.length; i++) {
-		if (chain[i] === '(') depth++;
-		else if (chain[i] === ')') {
-			depth--;
-			if (depth === 0) {
-				// i es el índice del paréntesis de cierre de la primera llamada
-				const insertAt = i + 1;
-				return chain.slice(0, insertAt) + `.$type<${typeName}>()` + chain.slice(insertAt);
-			}
-		}
-	}
+  // Recorrer balanceando paréntesis
+  for (; i < chain.length; i++) {
+    if (chain[i] === '(') depth++;
+    else if (chain[i] === ')') {
+      depth--;
+      if (depth === 0) {
+        // i es el índice del paréntesis de cierre de la primera llamada
+        const insertAt = i + 1;
+        return chain.slice(0, insertAt) + `.$type<${typeName}>()` + chain.slice(insertAt);
+      }
+    }
+  }
 
-	// Fallback: agregar al final (no debería ocurrir)
-	return chain + `.$type<${typeName}>()`;
+  // Fallback: agregar al final (no debería ocurrir)
+  return chain + `.$type<${typeName}>()`;
 }
 
 function removeUnusedPgCoreImport(file: SourceFile, importName: string): void {
-	const pgCoreImport = file.getImportDeclaration('drizzle-orm/pg-core');
-	const namedImport = pgCoreImport
-		?.getNamedImports()
-		.find((named) => named.getName() === importName);
-	if (!namedImport) return;
+  const pgCoreImport = file.getImportDeclaration('drizzle-orm/pg-core');
+  const namedImport = pgCoreImport
+    ?.getNamedImports()
+    .find((named) => named.getName() === importName);
+  if (!namedImport) return;
 
-	const isUsedOutsideImport = file
-		.getDescendantsOfKind(SyntaxKind.Identifier)
-		.some(
-			(identifier) =>
-				identifier.getText() === importName && !Node.isImportSpecifier(identifier.getParent())
-		);
+  const isUsedOutsideImport = file
+    .getDescendantsOfKind(SyntaxKind.Identifier)
+    .some(
+      (identifier) =>
+        identifier.getText() === importName && !Node.isImportSpecifier(identifier.getParent())
+    );
 
-	if (!isUsedOutsideImport) {
-		namedImport.remove();
-		console.log(`  ✓ import { ${importName} } removido porque no se usa`);
-	}
+  if (!isUsedOutsideImport) {
+    namedImport.remove();
+    console.log(`  ✓ import { ${importName} } removido porque no se usa`);
+  }
 }
