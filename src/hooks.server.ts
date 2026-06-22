@@ -1,24 +1,24 @@
 import type { Handle } from '@sveltejs/kit';
 import cron from 'node-cron';
-import { sondearEIngestar, podarHistorial } from '$lib/server/sifen';
+import { pollAndIngest, pruneHistory } from '$lib/server/sifen';
 import { dev } from '$app/env';
 
-let iniciado = false;
+let started = false;
 
-function iniciarTareas() {
-	if (iniciado) return;
-	iniciado = true;
+function startTasks() {
+	if (started) return;
+	started = true;
 
-	void sondearEIngestar();
-	void podarHistorial();
+	void pollAndIngest();
+	void pruneHistory();
 
-	cron.schedule('*/1 * * * *', () => void sondearEIngestar());
-	cron.schedule('0 3 * * *', () => void podarHistorial());
+	cron.schedule('*/1 * * * *', () => void pollAndIngest());
+	cron.schedule('0 3 * * *', () => void pruneHistory());
 
-	if (dev) console.log('[sifen] tareas de muestreo iniciadas');
+	if (dev) console.log('[sifen] sampling tasks started');
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
-	iniciarTareas();
+	startTasks();
 	return resolve(event);
 };

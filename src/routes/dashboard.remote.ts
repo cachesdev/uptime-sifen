@@ -1,17 +1,17 @@
-import { query, command, requested } from '$app/server';
+import { query, command } from '$app/server';
 import * as v from 'valibot';
 import { db } from '$lib/server/db';
 import { sql } from 'drizzle-orm';
-import { sondearEIngestar } from '$lib/server/sifen';
+import { pollAndIngest } from '$lib/server/sifen';
 import type {
 	DataPoint,
 	HealthChartStatus,
 	HealthChartRange
 } from '$lib/components/ui/health-chart';
 
-const RangoSchema = v.picklist(['60m', '24h', '30d', '60d']);
+const rangeSchema = v.picklist(['60m', '24h', '30d', '60d']);
 
-const VENTANA: Record<HealthChartRange, string> = {
+const WINDOW: Record<HealthChartRange, string> = {
 	'60m': '60 minutes',
 	'24h': '24 hours',
 	'30d': '30 days',
@@ -21,11 +21,11 @@ const VENTANA: Record<HealthChartRange, string> = {
 const DOWNSAMPLE: Record<HealthChartRange, string | null> = {
 	'60m': null,
 	'24h': null,
-	'30d': '1 hour',
-	'60d': '1 hour'
+	'30d': 'hour',
+	'60d': 'hour'
 };
 
-function estadoASalud(estado: string): HealthChartStatus {
+function toHealthStatus(estado: string): HealthChartStatus {
 	switch (estado) {
 		case 'VERDE':
 			return 'green';
@@ -38,100 +38,102 @@ function estadoASalud(estado: string): HealthChartStatus {
 	}
 }
 
-function descripcionPunto(estado: string, tiempoMs: number): string {
-	const etiqueta = estado.charAt(0) + estado.slice(1).toLowerCase();
-	return `${etiqueta}, ${tiempoMs} ms`;
+function pointDescription(estado: string, responseMs: number): string {
+	const label = estado.charAt(0) + estado.slice(1).toLowerCase();
+	return `${label}, ${responseMs} ms`;
 }
 
-export const datosDashboard = query(RangoSchema, async (range) => {
-	const ventana = VENTANA[range];
+export const dashboardData = query(rangeSchema, async (range) => {
+	const window = WINDOW[range];
 	const bucket = DOWNSAMPLE[range];
 
-	const filasKpi = await db.execute(sql`
+	const kpiResult = await db.execute(sql`
 		SELECT
 			servicio,
 			entorno,
 			es_lote,
-			COUNT(*) FILTER (WHERE estado = 'VERDE')::float / NULLIF(COUNT(*), 0) AS disponibilidad,
-			(array_agg(estado ORDER BY sampled_at DESC))[1] AS ultimo_estado,
-			(array_agg(tiempo_promedio_ms ORDER BY sampled_at DESC))[1] AS ultimo_tiempo_ms,
-			MAX(sampled_at) AS ultima_muestra
+			COUNT(*) FILTER (WHERE estado = 'VERDE')::float / NULLIF(COUNT(*), 0) AS availability,
+			(array_agg(estado ORDER BY sampled_at DESC))[1] AS last_estado,
+			(array_agg(tiempo_promedio_ms ORDER BY sampled_at DESC))[1] AS last_response_ms,
+			MAX(sampled_at) AS last_sample
 		FROM service_status
-		WHERE sampled_at >= now() - interval ${sql.raw(`'${ventana}'`)}
+		WHERE sampled_at >= now() - interval ${sql.raw(`'${window}'`)}
 		GROUP BY servicio, entorno, es_lote
 		ORDER BY servicio
 	`);
 
-	type FilaKpi = {
+	type KpiRow = {
 		servicio: string;
 		entorno: string;
 		es_lote: boolean;
-		disponibilidad: number | null;
-		ultimo_estado: string | null;
-		ultimo_tiempo_ms: number | null;
-		ultima_muestra: Date | null;
+		availability: number | null;
+		last_estado: string | null;
+		last_response_ms: number | null;
+		last_sample: string | null;
 	};
 
-	const kpis = filasKpi as unknown as FilaKpi[];
+	const kpiRows = kpiResult as unknown as KpiRow[];
 
-	let filasPuntos: Array<{
+	type ChartRow = {
 		servicio: string;
 		estado: string;
 		tiempo_promedio_ms: number;
-		sampled_at: Date;
-	}>;
+		sampled_at: string;
+	};
+
+	let chartRows: ChartRow[];
 
 	if (bucket) {
-		const resultado = await db.execute(sql`
-			SELECT DISTINCT ON (servicio, date_trunc(${bucket}, sampled_at))
+		const result = await db.execute(sql`
+			SELECT DISTINCT ON (servicio, date_trunc(${sql.raw(`'${bucket}'`)}, sampled_at))
 				servicio, estado, tiempo_promedio_ms, sampled_at
 			FROM service_status
-			WHERE sampled_at >= now() - interval ${sql.raw(`'${ventana}'`)}
-			ORDER BY servicio, date_trunc(${bucket}, sampled_at), sampled_at DESC
+			WHERE sampled_at >= now() - interval ${sql.raw(`'${window}'`)}
+			ORDER BY servicio, date_trunc(${sql.raw(`'${bucket}'`)}, sampled_at), sampled_at DESC
 		`);
-		filasPuntos = resultado as unknown as typeof filasPuntos;
+		chartRows = result as unknown as ChartRow[];
 	} else {
-		const resultado = await db.execute(sql`
+		const result = await db.execute(sql`
 			SELECT servicio, estado, tiempo_promedio_ms, sampled_at
 			FROM service_status
-			WHERE sampled_at >= now() - interval ${sql.raw(`'${ventana}'`)}
+			WHERE sampled_at >= now() - interval ${sql.raw(`'${window}'`)}
 			ORDER BY servicio, sampled_at
 		`);
-		filasPuntos = resultado as unknown as typeof filasPuntos;
+		chartRows = result as unknown as ChartRow[];
 	}
 
-	const puntosPorServicio = new Map<string, DataPoint[]>();
-	for (const fila of filasPuntos) {
-		const existentes = puntosPorServicio.get(fila.servicio) ?? [];
-		existentes.push({
-			status: estadoASalud(fila.estado),
-			description: descripcionPunto(fila.estado, fila.tiempo_promedio_ms),
-			timestamp: fila.sampled_at
+	const pointsByService = new Map<string, DataPoint[]>();
+	for (const row of chartRows) {
+		const existing = pointsByService.get(row.servicio) ?? [];
+		existing.push({
+			status: toHealthStatus(row.estado),
+			description: pointDescription(row.estado, row.tiempo_promedio_ms),
+			timestamp: new Date(row.sampled_at)
 		});
-		puntosPorServicio.set(fila.servicio, existentes);
+		pointsByService.set(row.servicio, existing);
 	}
 
-	let ultimaMuestra: Date | null = null;
+	let lastSample: Date | null = null;
 
-	const servicios = kpis.map((kpi) => {
-		if (kpi.ultima_muestra && (!ultimaMuestra || kpi.ultima_muestra > ultimaMuestra)) {
-			ultimaMuestra = kpi.ultima_muestra;
+	const services = kpiRows.map((row) => {
+		const date = row.last_sample ? new Date(row.last_sample) : null;
+		if (date && (!lastSample || date > lastSample)) {
+			lastSample = date;
 		}
 		return {
-			nombre: kpi.servicio,
-			entorno: kpi.entorno as 'PRODUCCION' | 'TEST',
-			esLote: kpi.es_lote,
-			puntos: puntosPorServicio.get(kpi.servicio) ?? [],
-			disponibilidad: kpi.disponibilidad ?? 0,
-			ultimoEstado: kpi.ultimo_estado as 'VERDE' | 'AMARILLO' | 'ROJO' | null,
-			ultimoTiempoMs: kpi.ultimo_tiempo_ms
+			name: row.servicio,
+			environment: row.entorno as 'PRODUCCION' | 'TEST',
+			isBatch: row.es_lote,
+			points: pointsByService.get(row.servicio) ?? [],
+			availability: row.availability ?? 0,
+			lastEstado: row.last_estado as 'VERDE' | 'AMARILLO' | 'ROJO' | null,
+			lastResponseMs: row.last_response_ms
 		};
 	});
 
-	return { servicios, ultimaMuestra };
+	return { services, lastSample };
 });
 
-export const refrescarAhora = command(async () => {
-	await sondearEIngestar();
-	await requested(datosDashboard, 4).refreshAll();
+export const refreshNow = command(async () => {
+	await pollAndIngest();
 });
