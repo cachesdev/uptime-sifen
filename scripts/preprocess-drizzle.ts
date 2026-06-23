@@ -43,7 +43,8 @@ interface Override {
 
 const OVERRIDES: Record<string, Override> = {
   'serviceStatus.estado': { type: '"VERDE" | "AMARILLO" | "ROJO"' },
-  'serviceStatus.entorno': { type: '"PRODUCCION" | "TEST"' }
+  'serviceStatus.entorno': { type: 'SifenEnvironment', importFrom: './enums' },
+  'serviceStatus.servicio': { type: 'SifenServiceName', importFrom: './enums' }
 };
 
 // ---------------------------------------------------------------------------

@@ -76,6 +76,7 @@ export const dashboardData = query(rangeSchema, async (range) => {
 
   type ChartRow = {
     servicio: string;
+    entorno: string;
     estado: string;
     tiempo_promedio_ms: number;
     sampled_at: string;
@@ -85,32 +86,37 @@ export const dashboardData = query(rangeSchema, async (range) => {
 
   if (bucket) {
     const result = await db.execute(sql`
-			SELECT DISTINCT ON (servicio, date_trunc(${sql.raw(`'${bucket}'`)}, sampled_at))
-				servicio, estado, tiempo_promedio_ms, sampled_at
+			SELECT DISTINCT ON (servicio, entorno, date_trunc(${sql.raw(`'${bucket}'`)}, sampled_at))
+				servicio, entorno, estado, tiempo_promedio_ms, sampled_at
 			FROM service_status
 			WHERE sampled_at >= now() - interval ${sql.raw(`'${window}'`)}
-			ORDER BY servicio, date_trunc(${sql.raw(`'${bucket}'`)}, sampled_at), sampled_at DESC
+			ORDER BY servicio, entorno, date_trunc(${sql.raw(`'${bucket}'`)}, sampled_at), sampled_at DESC
 		`);
     chartRows = result as unknown as ChartRow[];
   } else {
     const result = await db.execute(sql`
-			SELECT servicio, estado, tiempo_promedio_ms, sampled_at
+			SELECT servicio, entorno, estado, tiempo_promedio_ms, sampled_at
 			FROM service_status
 			WHERE sampled_at >= now() - interval ${sql.raw(`'${window}'`)}
-			ORDER BY servicio, sampled_at
+			ORDER BY servicio, entorno, sampled_at
 		`);
     chartRows = result as unknown as ChartRow[];
   }
 
+  function serviceKey(serviceName: string, environment: string): string {
+    return `${serviceName}:${environment}`;
+  }
+
   const pointsByService = new Map<string, DataPoint[]>();
   for (const row of chartRows) {
-    const existing = pointsByService.get(row.servicio) ?? [];
+    const key = serviceKey(row.servicio, row.entorno);
+    const existing = pointsByService.get(key) ?? [];
     existing.push({
       status: toHealthStatus(row.estado),
       description: pointDescription(row.estado, row.tiempo_promedio_ms),
       timestamp: new Date(row.sampled_at)
     });
-    pointsByService.set(row.servicio, existing);
+    pointsByService.set(key, existing);
   }
 
   let lastSample: Date | null = null;
@@ -124,7 +130,7 @@ export const dashboardData = query(rangeSchema, async (range) => {
       name: row.servicio,
       environment: row.entorno as 'PRODUCCION' | 'TEST',
       isBatch: row.es_lote,
-      points: pointsByService.get(row.servicio) ?? [],
+      points: pointsByService.get(serviceKey(row.servicio, row.entorno)) ?? [],
       availability: row.availability ?? 0,
       lastEstado: row.last_estado as 'VERDE' | 'AMARILLO' | 'ROJO' | null,
       lastResponseMs: row.last_response_ms

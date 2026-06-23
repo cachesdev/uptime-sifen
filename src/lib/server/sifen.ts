@@ -1,27 +1,72 @@
 import { db } from './db';
 import { serviceStatus } from './db/schema';
 import { sql } from 'drizzle-orm';
+import * as v from 'valibot';
+import type { SifenEnvironment, SifenServiceName } from './db/enums';
 
 export type Estado = 'VERDE' | 'AMARILLO' | 'ROJO';
-export type Entorno = 'PRODUCCION' | 'TEST';
-
-export interface SifenService {
-  nombreServicio: string;
-  estado: Estado;
-  esLote: 'S' | 'N';
-  tiempoPromedio: number;
-}
-
-export interface SifenResponse {
-  data: SifenService[];
-  mensaje: string;
-}
+export type Entorno = SifenEnvironment;
 
 const SIFEN_ENDPOINT = 'https://semaforo-sifen.dnit.gov.py/semafororest/estado';
+const ENVIRONMENT_SUFFIX = /\s*-\s*(Producción|Produccion|Test)\s*$/i;
 
-function extractEntorno(serviceName: string): Entorno {
-  return serviceName.includes('Test') ? 'TEST' : 'PRODUCCION';
+const SERVICE_NAMES_BY_UPSTREAM_LABEL: Record<string, SifenServiceName> = {
+  asicronico: 'Envío Lote Asincrónico',
+  asincronico: 'Envío Lote Asincrónico',
+  sincronico: 'Envío DE Sincrónico',
+  'consulta cdc': 'Consulta CDC',
+  'consulta lote': 'Consulta Lote',
+  'consulta ruc': 'Consulta RUC',
+  evento: 'Eventos',
+  eventos: 'Eventos'
+};
+
+function toLookupKey(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLocaleLowerCase('es-PY');
 }
+
+const sifenResponseSchema = v.object({
+  data: v.array(
+    v.pipe(
+      v.object({
+        nombreServicio: v.string(),
+        estado: v.picklist(['VERDE', 'AMARILLO', 'ROJO']),
+        esLote: v.picklist(['S', 'N']),
+        tiempoPromedio: v.number()
+      }),
+      v.transform((service) => {
+        const serviceKey = toLookupKey(
+          service.nombreServicio.replace(ENVIRONMENT_SUFFIX, '').trim()
+        );
+        const environmentKey = toLookupKey(
+          service.nombreServicio.match(ENVIRONMENT_SUFFIX)?.[1] ?? ''
+        );
+
+        const servicio = SERVICE_NAMES_BY_UPSTREAM_LABEL[serviceKey];
+        let entorno: SifenEnvironment | null = null;
+
+        if (environmentKey === 'produccion') {
+          entorno = 'PRODUCCION';
+        } else if (environmentKey === 'test') {
+          entorno = 'TEST';
+        }
+
+        if (!servicio || !entorno) {
+          throw new Error(`Unknown SIFEN service name: ${service.nombreServicio}`);
+        }
+
+        return { ...service, servicio, entorno };
+      })
+    )
+  ),
+  mensaje: v.string()
+});
+
+export type SifenResponse = v.InferOutput<typeof sifenResponseSchema>;
+export type SifenService = SifenResponse['data'][number];
 
 export async function fetchSifenStatus(): Promise<SifenResponse | null> {
   try {
@@ -32,13 +77,7 @@ export async function fetchSifenStatus(): Promise<SifenResponse | null> {
 
     if (!res.ok) return null;
 
-    const body: unknown = await res.json();
-
-    if (typeof body !== 'object' || body === null || !Array.isArray((body as SifenResponse).data)) {
-      return null;
-    }
-
-    return body as SifenResponse;
+    return v.parse(sifenResponseSchema, await res.json());
   } catch {
     return null;
   }
@@ -52,8 +91,8 @@ export async function ingestSamples(response: SifenResponse): Promise<void> {
     .values(
       response.data.map((s) => ({
         sampledAt,
-        servicio: s.nombreServicio,
-        entorno: extractEntorno(s.nombreServicio),
+        servicio: s.servicio,
+        entorno: s.entorno,
         esLote: s.esLote === 'S',
         estado: s.estado,
         tiempoPromedioMs: s.tiempoPromedio
