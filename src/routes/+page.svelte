@@ -19,6 +19,20 @@
     { value: '60d', label: '60 días' }
   ];
 
+  function isHealthChartRange(value: string): value is HealthChartRange {
+    return ranges.some((range) => range.value === value);
+  }
+
+  function getRange(): HealthChartRange {
+    return range;
+  }
+
+  function setRange(value: string) {
+    if (isHealthChartRange(value)) {
+      range = value;
+    }
+  }
+
   const environments = [
     { value: 'PRODUCCION', label: 'Producción', skeletonTestId: 'produccion-skeleton' },
     { value: 'TEST', label: 'Test', skeletonTestId: 'test-skeleton' }
@@ -140,7 +154,7 @@
       <ToggleGroup.Root
         type="single"
         variant="outline"
-        bind:value={range}
+        bind:value={getRange, setRange}
         class="w-full flex-wrap sm:w-fit"
       >
         {#each ranges as r (r.value)}
