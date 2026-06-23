@@ -135,7 +135,7 @@
   });
 </script>
 
-<Tooltip.Provider delayDuration={80} skipDelayDuration={300}>
+<Tooltip.Provider delayDuration={80} skipDelayDuration={300} disableCloseOnTriggerClick>
   <div
     data-slot="health-chart"
     data-range={range}
